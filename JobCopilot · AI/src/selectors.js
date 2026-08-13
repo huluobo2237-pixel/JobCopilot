@@ -1,11 +1,14 @@
 // BOSS 直聘选择器（借鉴即投实测验证版）
 const SELECTORS = {
   jobs: {
-    jobCard: 'li.job-card-box',
+    // BOSS 不同版本/页面的卡片类名有差异，都试一遍
+    jobCard: 'li.job-card-box, .job-card-wrapper, li[class*="job-card"]',
     jobName: '.job-name',
-    jobSalary: '.job-salary',
-    tagList: '.tag-list li',
-    company: '.company-name, .boss-info .company-name, [class*="company-name"]',
+    jobSalary: '.job-salary, .salary',
+    jobArea: '.company-location, [class*="company-location"], .job-area, [class*="job-area"]',
+    tagList: '.tag-list li, .job-card-footer .tag-list li, [class*="job-tag"] li',
+    // 当前版卡片：公司名藏在 .boss-name（链接 /gongsi/ 公司页）；旧版在 .company-name
+    company: '.boss-info .boss-name, .boss-name, .company-info .company-name, .company-name, [class*="company-name"]',
     immediateChatBtn: 'a.op-btn-chat'
   },
   chat: {

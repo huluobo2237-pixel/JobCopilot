@@ -28,6 +28,19 @@
       <label>城市</label>
       <input type="text" id="city" placeholder="如：沈阳 / 北京">
 
+      <label>排除公司关键词（逗号分隔，命中即跳过）</label>
+      <input type="text" id="outKeywords" placeholder="如：外包, 人力, 派遣, 中软, 软通, 驻场">
+
+      <label>HR 活跃度要求</label>
+      <select id="activeFilter">
+        <option value="">不限</option>
+        <option value="5">刚刚活跃</option>
+        <option value="4">今日活跃（含刚刚）</option>
+        <option value="3">3日内活跃</option>
+        <option value="2">本周活跃</option>
+        <option value="1">本月活跃</option>
+      </select>
+
       <label>收集岗位数量</label>
       <input type="number" id="count" value="20" min="1" max="200">
 

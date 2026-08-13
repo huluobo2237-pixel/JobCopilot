@@ -12,6 +12,12 @@
   "content_scripts": [
     {
       "matches": ["*://*.zhipin.com/web/geek/job*"],
+      "js": ["src/hook-api.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.zhipin.com/web/geek/job*"],
       "js": ["src/selectors.js", "src/content-search.js"],
       "run_at": "document_idle"
     },

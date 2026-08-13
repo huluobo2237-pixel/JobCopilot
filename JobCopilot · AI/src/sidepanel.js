@@ -1,6 +1,6 @@
 // ===== 侧边栏交互 =====
 const $ = (id) => document.getElementById(id);
-const CFG_FIELDS = ['dsKey', 'resumeText', 'keyword', 'city', 'count'];
+const CFG_FIELDS = ['dsKey', 'resumeText', 'keyword', 'city', 'outKeywords', 'activeFilter', 'count'];
 
 // 折叠
 document.querySelectorAll('.card-h[data-toggle]').forEach(h => {
@@ -82,20 +82,31 @@ function renderReview(screened) {
   const skipped = screened.filter(j => !j.match);
   $('reviewCount').textContent = '匹配 ' + matched.length + ' / ' + screened.length;
   let html = '';
-  matched.forEach(j => {
-    html += '<div class="job-item"><input type="checkbox" checked data-id="' + esc(j.id) + '">'
-      + '<div class="job-main"><div class="job-title">' + esc(j.name) + '</div>'
-      + '<div class="job-sub">' + esc(j.company) + ' · ' + esc(j.salary) + '</div>'
-      + '<div class="job-reason m">✓ ' + esc(j.reason) + '</div></div></div>';
-  });
-  skipped.forEach(j => {
-    html += '<div class="job-item skip"><input type="checkbox" disabled data-id="' + esc(j.id) + '">'
-      + '<div class="job-main"><div class="job-title">' + esc(j.name) + '</div>'
-      + '<div class="job-sub">' + esc(j.company) + ' · ' + esc(j.salary) + '</div>'
-      + '<div class="job-reason s">✗ ' + esc(j.reason) + '</div></div></div>';
-  });
+  matched.forEach(j => { html += jobItemHtml(j, true); });
+  skipped.forEach(j => { html += jobItemHtml(j, false); });
   $('reviewList').innerHTML = html || '<div class="job-sub">无岗位</div>';
   $('reviewCard').style.display = 'block';
+}
+
+function jobItemHtml(j, matched) {
+  const sub = [];
+  if (j.company) {
+    const co = j.companyLink
+      ? '<a class="job-company" href="' + esc(j.companyLink) + '" target="_blank" rel="noopener">' + esc(j.company) + '</a>'
+      : '<span class="job-company">' + esc(j.company) + '</span>';
+    sub.push(co);
+  }
+  if (j.salary) sub.push(esc(j.salary));
+  if (j.area) sub.push(esc(j.area));
+  const tagHtml = (j.tags && j.tags.length)
+    ? '<div class="job-tags">' + j.tags.map(t => '<span>' + esc(t) + '</span>').join('') + '</div>'
+    : '';
+  return '<div class="job-item' + (matched ? '' : ' skip') + '"><input type="checkbox" ' + (matched ? 'checked' : 'disabled') + ' data-id="' + esc(j.id) + '">'
+    + '<div class="job-main"><div class="job-title">' + esc(j.name) + '</div>'
+    + '<div class="job-sub">' + sub.join(' · ') + '</div>'
+    + tagHtml
+    + '<div class="job-reason ' + (matched ? 'm' : 's') + '">' + (matched ? '✓' : '✗') + ' ' + esc(j.reason) + '</div>'
+    + '</div></div>';
 }
 function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 

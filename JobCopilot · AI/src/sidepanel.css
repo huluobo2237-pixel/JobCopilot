@@ -41,6 +41,10 @@ input[type=file] { width: 100%; font-size: 12px; }
 .job-main { flex: 1; }
 .job-title { font-weight: 600; }
 .job-sub { color: #888; font-size: 11.5px; margin-top: 2px; }
+.job-sub a.job-company { color: #008fd0; text-decoration: none; font-weight: 700; }
+.job-company { color: #1f2328; font-weight: 700; }
+.job-tags { margin-top: 3px; line-height: 1.5; }
+.job-tags span { display: inline-block; font-size: 10.5px; color: #666; background: #f1f3f5; border: 1px solid #e5e8ec; border-radius: 3px; padding: 0 5px; margin: 0 3px 2px 0; }
 .job-reason { font-size: 11.5px; margin-top: 2px; }
 .job-reason.m { color: #2b8a3e; } .job-reason.s { color: #c92a2a; }
 

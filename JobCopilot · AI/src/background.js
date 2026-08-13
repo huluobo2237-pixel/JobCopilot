@@ -22,10 +22,49 @@ function log(text, level) { chrome.runtime.sendMessage({ type: 'LOG', text: text
 function pushPhase() { chrome.runtime.sendMessage({ type: 'PHASE', phase: state.phase }).catch(() => {}); }
 function progress(cur, total, label) { chrome.runtime.sendMessage({ type: 'PROGRESS', cur: cur, total: total, label: label || '' }).catch(() => {}); }
 async function waitIfPaused() { while (state.paused && !state.aborted) await sleep(400); }
-function getCfg() { return chrome.storage.local.get(['dsKey', 'resumeText', 'resumeImage', 'city', 'keyword', 'count']); }
+function getCfg() { return chrome.storage.local.get(['dsKey', 'resumeText', 'resumeImage', 'city', 'keyword', 'count', 'outKeywords', 'activeFilter']); }
 function resumeFull(cfg) { return (cfg.resumeText || '').trim(); }
 function jobInfo(j) { return '岗位：' + (j.name || '') + '\n技能标签：' + ((j.tags || []).join('、')) + '\n薪资：' + (j.salary || '') + '\n公司：' + (j.company || ''); }
 function findJob(id) { for (var i = 0; i < state.jobs.length; i++) if (state.jobs[i].id === id) return state.jobs[i]; return null; }
+
+// 本地黑名单过滤：公司名/岗位名/标签命中排除词，直接判不匹配，不消耗 AI
+function localOutsourceFilter(cfg, job) {
+  const words = (cfg.outKeywords || '').split(/[,，;；\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (!words.length) return null;
+  const text = [job.company || '', job.name || '', (job.tags || []).join(' ')].join(' ').toLowerCase();
+  for (const w of words) {
+    if (text.indexOf(w) >= 0) return { match: false, reason: '命中排除词「' + w + '」' };
+  }
+  return null;
+}
+
+// 活跃度等级：刚刚活跃=5 > 今日=4 > 3日内=3 > 本周=2 > 本月=1 > 几乎不活跃=0；未知=-1
+function activityLevel(s) {
+  s = s || '';
+  if (s.indexOf('刚刚活跃') >= 0) return 5;
+  if (s.indexOf('在线') >= 0) return 5;
+  if (s.indexOf('今日活跃') >= 0) return 4;
+  const m = s.match(/(\d+)日内活跃/);
+  if (m) return 3;
+  if (s.indexOf('本周活跃') >= 0) return 2;
+  if (s.indexOf('本月活跃') >= 0) return 1;
+  if (s.indexOf('几乎不活跃') >= 0) return 0;
+  return -1;
+}
+
+// 活跃度筛选：要求等级以上的保留；未知不拦截（避免误杀）
+function localActivityFilter(cfg, job) {
+  const req = parseInt(cfg.activeFilter, 10);
+  if (!req) return null;
+  let lv = activityLevel(job.activity);
+  if (job.bossOnline === true && lv < 5) lv = 5; // 在线视同高活跃
+  if (lv < 0) return null;
+  if (lv < req) return { match: false, reason: 'HR活跃度不足：' + (job.activity || '离线') + '（要求' + reqLabel(req) + '）' };
+  return null;
+}
+function reqLabel(req) {
+  return { 5: '刚刚活跃', 4: '今日活跃', 3: '3日内活跃', 2: '本周活跃', 1: '本月活跃' }[req] || String(req);
+}
 
 // ── DeepSeek ──
 async function callDS(messages, maxTokens) {
@@ -43,7 +82,7 @@ async function callDS(messages, maxTokens) {
 
 // 筛选：只判断是否值得投（用岗位标签快速判断，不生成招呼语）
 async function screenJob(cfg, job) {
-  const sys = '你是资深求职助手。请完全依据下面提供的【求职者简历】，判断某个岗位是否值得该求职者投递。\n【判断标准·适中】保留(match=true)：岗位方向与求职者简历的专业/技能/经历相关，且求职者的经验年限、学历、级别够得着该岗位（不超纲）。剔除(match=false)：方向与简历明显无关；岗位要求的经验/学历/硬技能明显超出简历；岗位级别明显高于求职者当前水平。请依据简历本身判断，不要套用任何固定行业或级别。\n【输出】只输出一个JSON对象，不要markdown：{"match":true或false,"reason":"一句话理由"}';
+  const sys = '你是资深求职助手。请完全依据下面提供的【求职者简历】，判断某个岗位是否值得该求职者投递。\n【判断标准·适中】保留(match=true)：岗位方向与求职者简历的专业/技能/经历相关，且求职者的经验年限、学历、级别够得着该岗位（不超纲）。剔除(match=false)：方向与简历明显无关；岗位要求的经验/学历/硬技能明显超出简历；岗位级别明显高于求职者当前水平；公司为外包/劳务派遣/人力资源外包性质（包括公司名含"外包、人力、派遣、众包"等字样，或岗位明确要求"外派、驻场"，或属于知名外包企业如中软国际、软通动力、博彦科技、京北方等）。请依据简历本身判断，不要套用任何固定行业或级别。\n【输出】只输出一个JSON对象，不要markdown：{"match":true或false,"reason":"一句话理由"}';
   const user = '求职者简历：\n' + resumeFull(cfg) + '\n\n待判断岗位：\n' + jobInfo(job) + '\n\n严格输出JSON。';
   const raw = await callDS([{ role: 'system', content: sys }, { role: 'user', content: user }], 200);
   let p = null;
@@ -52,11 +91,57 @@ async function screenJob(cfg, job) {
   return { match: p.match === true, reason: p.reason || '' };
 }
 
+// 常见复姓（保守起见复姓不自动加称呼，避免"欧姐/欧哥"式尴尬）
+const COMPOUND_SURNAMES = ['欧阳', '司马', '诸葛', '上官', '东方', '慕容', '独孤', '夏侯', '尉迟', '公孙', '皇甫', '南宫', '端木', '轩辕', '令狐', '闻人', '司徒', '司空', '长孙', '申屠', '公冶', '宗政', '濮阳', '淳于', '单于', '太叔'];
+// 强性别倾向用字（名中命中即推断，宁缺毋滥，中性字一律不收）
+const MALE_CHARS = '伟强磊军杰涛斌勇超浩鹏峰飞亮刚建东志波辉凯鑫博俊林海富坤铭勋腾翔健威锋岩松毅晨豪康宏泽轩然昊睿天翼航硕辰启瑞鸿达庆权汉彬彪帅迪帆舟';
+const FEMALE_CHARS = '芳敏静丽娟燕婷雪梅红霞英玉秀兰慧洁怡淑妍丹娜媛萍玲凤美琴云珍蓉虹颖珊琪瑶萌婉蕾莉薇萱诺欣梦佳月秋露晶甜艺蕊芸';
+
+function nameGender(name) {
+  if (!name) return null;
+  let male = 0, female = 0;
+  for (const ch of name) {
+    if (MALE_CHARS.indexOf(ch) >= 0) male++;
+    if (FEMALE_CHARS.indexOf(ch) >= 0) female++;
+  }
+  if (male && !female) return '男';
+  if (female && !male) return '女';
+  return null; // 都命中或都没命中 → 不确定
+}
+
+// 从 HR 名字推导称呼：先生/女士后缀最可靠；没有后缀时按姓名用字性别偏好推断；
+// 仍不确定一律返回 null（不硬叫，避免叫错性别）
+function deriveGreeting(job) {
+  const n = (job.hrName || '').trim();
+  if (!n) return null;
+  // 1) 姓+先生/女士（如 李女士、王先生）
+  const m = n.match(/^([\u4e00-\u9fa5]{1,2})(先生|女士)$/);
+  if (m) {
+    if (COMPOUND_SURNAMES.indexOf(m[1]) >= 0) return null; // 复姓，保守不称呼
+    const surname = m[1].charAt(0);
+    return m[2] === '先生' ? surname + '哥' : surname + '姐';
+  }
+  // 2) 纯中文姓名（如 张伟、李静）按名推断性别
+  const pure = (n.match(/[\u4e00-\u9fa5]{2,4}/) || [''])[0];
+  if (pure.length < 2) return null;
+  let surname = pure.charAt(0);
+  for (const cs of COMPOUND_SURNAMES) {
+    if (pure.indexOf(cs) === 0) { surname = cs; break; }
+  }
+  const given = pure.slice(surname.length);
+  const g = nameGender(given);
+  if (!g) return null;
+  return g === '男' ? surname + '哥' : surname + '姐';
+}
+
 // 投递时：结合该岗位的【完整JD】+ 简历，现场生成专属招呼语
-async function genGreetingFromJD(cfg, job, jd) {
-  const sys = '你是求职者本人，在BOSS直聘给HR发招呼语。回复会原样发给HR，严禁任何注释、说明、括号备注、字数统计或引导语。\n【格式】1.开头前15字必须是"熟悉XXX、XXX"(填该JD要求且你简历具备的核心技能1-2个)。2.紧接"做过XXX"说明简历里与该岗位相关的具体项目/经历。3.全文80-120字，真诚自然。';
+async function genGreetingFromJD(cfg, job, jd, callName) {
+  const callRule = callName
+    ? '开头第一句必须先写称呼「' + callName + '，您好！」，例如：「' + callName + '，您好！我熟悉…」'
+    : '开头第一句必须先写「您好！」问候，例如：「您好！我熟悉…」';
+  const sys = '你是求职者本人，在BOSS直聘给HR发招呼语。回复会原样发给HR，严禁任何注释、说明、括号备注、字数统计或引导语。\n【格式】1.' + callRule + '。2.紧接"做过XXX"说明简历里与该岗位相关的具体项目/经历。3.全文80-120字，真诚自然。';
   const jdText = (jd && jd.trim()) ? jd.trim() : ('技能标签：' + (job.tags || []).join('、'));
-  const user = '我的简历：\n' + resumeFull(cfg) + '\n\n目标岗位：' + (job.name || '') + (job.company ? ('（' + job.company + '）') : '') + '\n该岗位JD：\n' + jdText + '\n\n请按格式生成一段招呼语，开头必须"熟悉…"，直接输出招呼语本身，不要任何多余内容。';
+  const user = '我的简历：\n' + resumeFull(cfg) + '\n\n目标岗位：' + (job.name || '') + (job.company ? ('（' + job.company + '）') : '') + '\n该岗位JD：\n' + jdText + '\n\n请按格式生成一段招呼语' + (callName ? '（HR姓' + callName.charAt(0) + '，开头必须称呼' + callName + '）' : '（开头必须先写"您好！"问候，再接"我熟悉…"）') + '，直接输出招呼语本身，不要任何多余内容。';
   const raw = await callDS([{ role: 'system', content: sys }, { role: 'user', content: user }], 300);
   return (raw || '').trim();
 }
@@ -137,9 +222,14 @@ async function runCollect() {
     if (state.aborted) break; await waitIfPaused();
     const batch = state.jobs.slice(i, i + CONC);
     await Promise.all(batch.map(async (job) => {
-      let res;
-      try { res = await screenJob(cfg, job); }
-      catch (e) { res = { match: false, reason: '筛选异常:' + e.message }; }
+      // 本地规则：黑名单 → 活跃度 → AI
+      const local = localOutsourceFilter(cfg, job);
+      const act = local ? null : localActivityFilter(cfg, job);
+      let res = local || act;
+      if (!res) {
+        try { res = await screenJob(cfg, job); }
+        catch (e) { res = { match: false, reason: '筛选异常:' + e.message }; }
+      }
       state.screened.push(Object.assign({}, job, { match: res.match, reason: res.reason }));
       done++; progress(done, total, '筛选');
     }));
@@ -177,11 +267,17 @@ async function runDeliver(jobIds) {
     log('  读取岗位JD...');
     const jdr = await sendToTab(tab.id, { type: 'OPEN_JD', job: job });
     const jd = (jdr && jdr.jd) || '';
+    // 卡片上没抓到公司名时，用详情面板的兜底
+    if (jdr && jdr.company && !job.company) job.company = jdr.company;
+    if (jdr && jdr.companyLink && !job.companyLink) job.companyLink = jdr.companyLink;
+    if (jdr && jdr.hrName && !job.hrName) job.hrName = jdr.hrName;
 
     // 2. 用【完整JD + 简历】现场生成这个岗位专属的招呼语
     log('  AI生成专属招呼语...');
     let greeting = '';
-    try { greeting = await genGreetingFromJD(cfg, job, jd); } catch (e) { log('  生成失败：' + e.message, 'error'); }
+    const callName = deriveGreeting(job);
+    if (callName) log('  称呼：' + callName);
+    try { greeting = await genGreetingFromJD(cfg, job, jd, callName); } catch (e) { log('  生成失败：' + e.message, 'error'); }
     if (!greeting) { recordFail(job, '招呼语生成失败'); log('  招呼语为空，跳过', 'warn'); progress(k + 1, ids.length, '投递'); continue; }
 
     // 3. 点立即沟通 → 继续沟通（跳聊天页）
