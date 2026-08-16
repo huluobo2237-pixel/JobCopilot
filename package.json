@@ -1,0 +1,14 @@
+{
+  "name": "jobcopilot-extension",
+  "version": "1.7.2",
+  "private": true,
+  "description": "JobCopilot browser extension tests",
+  "scripts": {
+    "build:vendor": "node scripts/vendor-resume-libs.mjs",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "mammoth": "1.12.0",
+    "pdfjs-dist": "6.1.200"
+  }
+}

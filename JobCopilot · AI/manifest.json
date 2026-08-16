@@ -1,23 +1,23 @@
 {
   "manifest_version": 3,
   "name": "JobCopilot · AI求职智能体",
-  "version": "1.0.0",
+  "version": "1.7.2",
   "description": "基于 LLM 的智能求职助手：AI 岗位匹配 + 千岗千面招呼语 + 自动投递",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": { "default_title": "BOSS自动投递" },
   "side_panel": { "default_path": "src/sidepanel.html" },
-  "permissions": ["storage", "tabs", "scripting", "sidePanel"],
-  "host_permissions": ["*://*.zhipin.com/*", "https://api.deepseek.com/*"],
+  "permissions": ["storage", "tabs", "scripting", "sidePanel", "debugger"],
+  "host_permissions": ["*://*.zhipin.com/*", "https://api.muskapi.cc/*"],
   "background": { "service_worker": "src/background.js" },
   "content_scripts": [
     {
       "matches": ["*://*.zhipin.com/web/geek/job*"],
-      "js": ["src/selectors.js", "src/content-search.js"],
+      "js": ["src/selectors.js", "src/job-data-core.js", "src/content-search.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["*://*.zhipin.com/web/geek/chat*"],
-      "js": ["src/selectors.js", "src/content-chat.js"],
+      "js": ["src/selectors.js", "src/mobile-followup-core.js", "src/content-chat.js"],
       "run_at": "document_idle"
     }
   ]

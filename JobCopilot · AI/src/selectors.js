@@ -2,10 +2,11 @@
 const SELECTORS = {
   jobs: {
     jobCard: 'li.job-card-box',
-    jobName: '.job-name',
-    jobSalary: '.job-salary',
-    tagList: '.tag-list li',
-    company: '.company-name, .boss-info .company-name, [class*="company-name"]',
+    jobName: 'a.job-name, .job-name, .job-name-text, a[href*="/job_detail/"]',
+    jobSalary: '.job-salary, .salary, [class*="job-salary"], [class*="salary"]',
+    tagList: '.tag-list li, .tag-list span, [class*="job-tag"] span',
+    company: '.boss-name, .company-name a, .company-name, .brand-name, [class*="company-name"], a[href*="/gongsi/"]',
+    area: '.company-location, .job-area, .job-area-wrapper, .location, [class*="company-location"], [class*="job-location"]',
     immediateChatBtn: 'a.op-btn-chat'
   },
   chat: {

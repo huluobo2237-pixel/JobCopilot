@@ -12,26 +12,60 @@
   <section class="card">
     <div class="card-h" data-toggle="cfgBody"><span>① 配置</span><span class="chev">▾</span></div>
     <div class="card-b" id="cfgBody">
-      <label>DeepSeek API Key</label>
-      <input type="password" id="dsKey" placeholder="sk- 开头">
+      <label>MuskAI API Key</label>
+      <input type="password" id="muskApiKey" placeholder="在 MuskAI 控制台复制 API Key" autocomplete="off">
 
-      <label>简历图片（投递时发给HR）</label>
+      <label>GPT-5.6 模型</label>
+      <select id="gptModel">
+        <option value="gpt-5.6-sol">GPT-5.6 Sol（能力优先）</option>
+        <option value="gpt-5.6-terra" selected>GPT-5.6 Terra（默认均衡）</option>
+        <option value="gpt-5.6-luna">GPT-5.6 Luna（速度优先）</option>
+      </select>
+      <div class="privacy-note">Key 仅保存在本机；AI 精准筛选或生成招呼语时会把必要内容发送至 MuskAI。</div>
+
+      <label>简历文件（自动解析）</label>
+      <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md,image/jpeg,image/png,image/webp">
+      <div class="resume-actions">
+        <button type="button" class="btn-secondary btn-compact" id="btnParseResume">本地解析到文本框</button>
+        <button type="button" class="btn-secondary btn-compact" id="btnGenerateResumeImages">生成投递图片</button>
+        <button type="button" class="btn-warn btn-compact" id="btnOcrResume" hidden>使用 MuskAI OCR</button>
+      </div>
+      <div id="resumeParseStatus" class="parse-status">可在本机解析文字或生成投递图片；只有 OCR 会把扫描件发送 MuskAI。</div>
+
+      <label>简历文字（用于 AI 精准筛选 + 生成招呼语）</label>
+      <textarea id="resumeText" rows="5" placeholder="粘贴你的简历：技能、项目经历、教育背景、实习经历等，越详细招呼语越精准"></textarea>
+
+      <label>投递图片（可由上方文件生成，也可手动上传）</label>
       <input type="file" id="resumeImg" accept="image/*">
       <div id="imgPrev"></div>
 
-      <label>简历文字（必填，用于AI筛选 + 生成招呼语）</label>
-      <textarea id="resumeText" rows="5" placeholder="粘贴你的简历：技能、项目经历、教育背景、实习经历等，越详细招呼语越精准"></textarea>
+      <label>岗位来源</label>
+      <select id="collectionSource">
+        <option value="search" selected>关键词搜索结果</option>
+        <option value="recommend">BOSS 首页推荐（强制 AI 筛选）</option>
+      </select>
+      <div class="privacy-note" id="collectionSourceNote">按关键词和城市打开 BOSS 搜索结果并收集岗位。</div>
 
-      <label>岗位关键词</label>
+      <label>目标岗位关键词</label>
       <input type="text" id="keyword" placeholder="如：数据分析 / AI应用">
 
-      <label>城市</label>
-      <input type="text" id="city" placeholder="如：沈阳 / 北京">
+      <label>城市（多个城市用 / 或逗号分隔）</label>
+      <input type="text" id="city" placeholder="如：成都 / 重庆">
 
-      <label>收集岗位数量</label>
+      <label>收集岗位总数（多城市平均分配）</label>
       <input type="number" id="count" value="20" min="1" max="200">
 
-      <button class="btn-primary" id="saveCfg">保存配置</button>
+      <label>岗位筛选模式</label>
+      <select id="screeningMode">
+        <option value="bulk" selected>海投模式（跳过 AI 前置筛选）</option>
+        <option value="ai">AI 精准筛选（只保留匹配岗位）</option>
+      </select>
+      <div class="privacy-note" id="screeningModeNote">全部有效岗位进入人工审核；投递时仍会依据 JD 生成专属招呼语。</div>
+
+      <div class="cfg-actions">
+        <button class="btn-primary" id="saveCfg">保存配置</button>
+        <button class="btn-secondary" id="btnTestAI">测试 AI 连接</button>
+      </div>
       <span id="saved" class="ok-msg" style="display:none">✓ 已保存</span>
     </div>
   </section>
@@ -40,7 +74,8 @@
   <section class="card">
     <div class="card-h"><span>② 运行</span></div>
     <div class="card-b">
-      <button class="btn-go" id="btnCollect">开始收集 + AI筛选</button>
+      <button class="btn-go" id="btnCollect">开始收集 → 海投审核</button>
+      <div class="run-note">运行时可切换到其他标签页，但请保持本侧边栏开启；关闭 Edge 或侧边栏会安全中断。</div>
       <div class="status-row">
         <span id="phaseText">未开始</span>
         <span id="progText"></span>
@@ -58,10 +93,54 @@
     <div class="card-h"><span>③ 审核确认</span><span id="reviewCount"></span></div>
     <div class="card-b">
       <div class="review-tools">
-        <label class="mini"><input type="checkbox" id="selAll" checked> 全选匹配</label>
-        <button class="btn-go" id="btnDeliver">投递选中</button>
+        <label class="mini"><input type="checkbox" id="selAll" checked> <span id="selAllLabel">全选可投</span></label>
+        <div class="review-actions">
+          <button class="btn-stop" id="btnReviewStop" hidden>停止投递</button>
+          <button class="btn-go" id="btnDeliver">投递选中</button>
+        </div>
       </div>
       <div id="reviewList"></div>
+    </div>
+  </section>
+
+  <!-- 手机端投递补充 -->
+  <section class="card" id="mobileFollowupCard">
+    <div class="card-h" data-toggle="mobileFollowupBody">
+      <span>④ 手机投递补充</span><span>▾</span>
+    </div>
+    <div class="card-b" id="mobileFollowupBody">
+      <div class="followup-mode">
+        <label>扫描方式
+          <select id="followupScanMode">
+            <option value="count">列表前 N 条</option>
+            <option value="range">日期与时间</option>
+          </select>
+        </label>
+        <label id="followupCountWrap">会话数量
+          <input type="number" id="followupConversationCount" min="1" max="50" value="28">
+        </label>
+      </div>
+      <div class="followup-range" id="followupRangeFields" hidden>
+        <label>投递日期
+          <input type="date" id="followupDate">
+        </label>
+        <label>开始时间
+          <input type="time" id="followupStart">
+        </label>
+        <label>结束时间
+          <input type="time" id="followupEnd">
+        </label>
+      </div>
+      <div class="privacy-note" id="followupPrivacyNote">检查列表最前面的 N 条会话，逐条确认你发送过通用开场白，再读取 JD 并生成草稿，不会自动发送。</div>
+      <button class="btn-secondary" id="btnBuildFollowups">扫描会话 + 生成草稿</button>
+      <div id="followupStatus" class="parse-status">默认检查列表最前面的 28 条会话。</div>
+      <div id="followupReview" hidden>
+        <div class="review-tools">
+          <label class="mini"><input type="checkbox" id="selAllFollowups" checked> 全选可发送</label>
+          <button class="btn-go" id="btnSendFollowups">确认发送选中</button>
+        </div>
+        <div id="followupDraftList"></div>
+      </div>
     </div>
   </section>
 
@@ -71,6 +150,9 @@
     <div class="log" id="log"></div>
   </section>
 
+  <script src="../vendor/mammoth.browser.min.js"></script>
+  <script src="resume-parser-core.js"></script>
+  <script type="module" src="resume-parser-browser.mjs"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
