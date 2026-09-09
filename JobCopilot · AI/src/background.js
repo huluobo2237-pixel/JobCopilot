@@ -26,6 +26,16 @@ function getCfg() { return chrome.storage.local.get(['dsKey', 'resumeText', 'res
 function resumeFull(cfg) { return (cfg.resumeText || '').trim(); }
 function jobInfo(j) { return '岗位：' + (j.name || '') + '\n技能标签：' + ((j.tags || []).join('、')) + '\n薪资：' + (j.salary || '') + '\n公司：' + (j.company || ''); }
 function findJob(id) { for (var i = 0; i < state.jobs.length; i++) if (state.jobs[i].id === id) return state.jobs[i]; return null; }
+function getExactJobUrl(job) {
+  if (!job || !job.id || !job.link) return '';
+  try {
+    const url = new URL(job.link);
+    const hostOk = url.hostname === 'zhipin.com' || url.hostname.endsWith('.zhipin.com');
+    const match = url.pathname.match(/\/job_detail\/([^/]+)\.html$/);
+    if (!hostOk || !match || match[1] !== job.id) return '';
+    return url.href;
+  } catch (e) { return ''; }
+}
 
 // ── DeepSeek ──
 async function callDS(messages, maxTokens) {
@@ -163,7 +173,6 @@ async function runDeliver(jobIds) {
 
   const ids = (jobIds || []).filter(id => !state.processed[id]);
   if (!ids.length) { log('没有可投递的岗位（可能已投过，可点重置）', 'warn'); finishDeliver(); return; }
-  const searchUrl = buildSearchUrl(cfg);
 
   for (let k = 0; k < ids.length; k++) {
     if (state.aborted) break; await waitIfPaused();
@@ -171,11 +180,30 @@ async function runDeliver(jobIds) {
     if (!job) { log('[' + (k + 1) + '/' + ids.length + '] 找不到岗位数据，跳过', 'warn'); continue; }
     log('[' + (k + 1) + '/' + ids.length + '] ' + job.name + ' - ' + (job.company || ''));
 
-    // 1. 回搜索页，点开卡片读取该岗位完整JD
-    const tab = await ensureTab(searchUrl);
+    // 1. 直接打开审核时保存的精确岗位链接，避免搜索结果变动后误投其他卡片
+    const targetUrl = getExactJobUrl(job);
+    if (!targetUrl) {
+      const msg = '缺少与已选岗位匹配的精确链接';
+      recordFail(job, msg); log('  ' + msg + '，已跳过以避免误投', 'error');
+      progress(k + 1, ids.length, '投递');
+      continue;
+    }
+    const tab = await ensureTab(targetUrl);
     await ensureInjected(tab.id, 'src/content-search.js');
     log('  读取岗位JD...');
     const jdr = await sendToTab(tab.id, { type: 'OPEN_JD', job: job });
+    if (!jdr || !jdr.success) {
+      const msg = (jdr && jdr.error) || '无法打开已选岗位';
+      recordFail(job, msg); log('  ' + msg + '，已跳过以避免误投', 'error');
+      progress(k + 1, ids.length, '投递');
+      continue;
+    }
+    if (jdr.jobId !== job.id) {
+      const msg = '当前详情与已选岗位不一致';
+      recordFail(job, msg); log('  ' + msg + '，已跳过以避免误投', 'error');
+      progress(k + 1, ids.length, '投递');
+      continue;
+    }
     const jd = (jdr && jdr.jd) || '';
 
     // 2. 用【完整JD + 简历】现场生成这个岗位专属的招呼语
@@ -186,7 +214,13 @@ async function runDeliver(jobIds) {
 
     // 3. 点立即沟通 → 继续沟通（跳聊天页）
     log('  建立联系（立即沟通 → 继续沟通）...');
-    await sendToTab(tab.id, { type: 'GO_CHAT', job: job });
+    const chatr = await sendToTab(tab.id, { type: 'GO_CHAT', job: job });
+    if (!chatr || !chatr.success) {
+      const msg = (chatr && chatr.error) || '无法与已选岗位建立联系';
+      recordFail(job, msg); log('  ' + msg + '，已跳过', 'error');
+      progress(k + 1, ids.length, '投递');
+      continue;
+    }
     await waitTabComplete(tab.id); await sleep(2500);
 
     // 4. 聊天页当前打开的即该岗位会话，先发图片再发招呼语（无需匹配）
