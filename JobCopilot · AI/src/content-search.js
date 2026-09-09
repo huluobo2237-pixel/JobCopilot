@@ -6,6 +6,10 @@
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   function getCards() { return Array.from(document.querySelectorAll(SELECTORS.jobs.jobCard)); }
+  function getJobId(url) {
+    const match = (url || '').match(/\/job_detail\/([^/?]+)\.html/);
+    return (match && match[1]) || '';
+  }
 
   function parseCard(card) {
     const nameEl = card.querySelector(SELECTORS.jobs.jobName);
@@ -52,8 +56,18 @@
   function findCardByJob(job) {
     const cards = getCards();
     for (const c of cards) { const j = parseCard(c); if (job.id && j.id === job.id) return c; }
-    for (const c of cards) { const j = parseCard(c); if (j.name === job.name && (!job.company || j.company === job.company)) return c; }
     return null;
+  }
+
+  function readJD() {
+    let jd = '';
+    const det = document.querySelector('.job-detail-box, [class*="job-detail"], .detail-content, .job-detail');
+    if (det) jd = (det.innerText || '').trim();
+    if (!jd) {
+      const secs = document.querySelectorAll('.job-sec-text, [class*="job-sec"], [class*="job-desc"]');
+      jd = Array.from(secs).map(s => (s.innerText || '').trim()).filter(Boolean).join('\n');
+    }
+    return jd.slice(0, 1800);
   }
 
   function waitFor(sel, timeout) {
@@ -82,41 +96,40 @@
     });
   }
 
-  // 点开卡片 → 抓取右侧详情面板的完整JD
+  // 确认当前页面就是已选岗位，再读取完整 JD
   async function openJD(job) {
+    const currentId = getJobId(window.location.href);
+    if (currentId) {
+      if (!job || !job.id || currentId !== job.id) return { success: false, error: '当前详情与已选岗位不一致' };
+      return { success: true, jobId: currentId, jd: readJD() };
+    }
+
     const card = findCardByJob(job);
     if (!card) return { success: false, error: '未找到岗位卡片' };
+    const cardJob = parseCard(card);
+    if (!job || !job.id || cardJob.id !== job.id) return { success: false, error: '岗位卡片与已选岗位不一致' };
     card.scrollIntoView({ block: 'center' });
     await sleep(400);
     card.click();
     await sleep(1600);
-    let jd = '';
-    const det = document.querySelector('.job-detail-box, [class*="job-detail"], .detail-content, .job-detail');
-    if (det) jd = (det.innerText || '').trim();
-    if (!jd) {
-      const secs = document.querySelectorAll('.job-sec-text, [class*="job-sec"], [class*="job-desc"]');
-      jd = Array.from(secs).map(s => (s.innerText || '').trim()).filter(Boolean).join('\n');
-    }
-    return { success: true, jd: jd.slice(0, 1800) };
+    return { success: true, jobId: cardJob.id, jd: readJD() };
   }
 
-  // 卡片已打开 → 点立即沟通 → 弹窗点"继续沟通"（跳转聊天页）
+  // 只有当前详情页与已选岗位 ID 一致时，才允许建立联系
   async function goChat(job) {
+    const currentId = getJobId(window.location.href);
+    if (!job || !job.id || currentId !== job.id) return { success: false, error: '当前详情与已选岗位不一致' };
     let btn = await waitFor(SELECTORS.jobs.immediateChatBtn, 5000);
     if (!btn) {
       const all = document.querySelectorAll('a, button, span');
       for (const el of all) { const tx = (el.textContent || '').trim(); if (tx === '立即沟通' || tx === '继续沟通') { btn = el; break; } }
     }
-    if (!btn) { // 面板可能关了，重新点卡片
-      const card = findCardByJob(job);
-      if (card) { card.click(); await sleep(1200); btn = await waitFor(SELECTORS.jobs.immediateChatBtn, 4000); }
-    }
     if (!btn) return { success: false, error: '未找到立即沟通按钮' };
     btn.click();
     await sleep(1500);
     const go = await waitForText(['继续沟通'], 4000);
-    if (go) { go.click(); return { success: true, navigated: true }; }
-    return { success: true, navigated: false };
+    if (go) { go.click(); return { success: true, navigated: true, jobId: currentId }; }
+    return { success: true, navigated: false, jobId: currentId };
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
