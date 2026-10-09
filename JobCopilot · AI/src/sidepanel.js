@@ -1,6 +1,6 @@
 // ===== 侧边栏交互 =====
 const $ = (id) => document.getElementById(id);
-const CFG_FIELDS = ['dsKey', 'resumeText', 'keyword', 'city', 'count'];
+const CFG_FIELDS = ['dsKey', 'resumeText', 'keyword', 'city', 'jobType', 'count'];
 
 // 折叠
 document.querySelectorAll('.card-h[data-toggle]').forEach(h => {
