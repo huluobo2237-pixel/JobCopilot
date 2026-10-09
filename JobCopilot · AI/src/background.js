@@ -22,7 +22,7 @@ function log(text, level) { chrome.runtime.sendMessage({ type: 'LOG', text: text
 function pushPhase() { chrome.runtime.sendMessage({ type: 'PHASE', phase: state.phase }).catch(() => {}); }
 function progress(cur, total, label) { chrome.runtime.sendMessage({ type: 'PROGRESS', cur: cur, total: total, label: label || '' }).catch(() => {}); }
 async function waitIfPaused() { while (state.paused && !state.aborted) await sleep(400); }
-function getCfg() { return chrome.storage.local.get(['dsKey', 'resumeText', 'resumeImage', 'city', 'keyword', 'count']); }
+function getCfg() { return chrome.storage.local.get(['dsKey', 'resumeText', 'resumeImage', 'city', 'keyword', 'jobType', 'count']); }
 function resumeFull(cfg) { return (cfg.resumeText || '').trim(); }
 function jobInfo(j) { return '岗位：' + (j.name || '') + '\n技能标签：' + ((j.tags || []).join('、')) + '\n薪资：' + (j.salary || '') + '\n公司：' + (j.company || ''); }
 function findJob(id) { for (var i = 0; i < state.jobs.length; i++) if (state.jobs[i].id === id) return state.jobs[i]; return null; }
@@ -85,9 +85,12 @@ function resolveCity(cfg) {
   const code = (typeof CITY_MAP !== 'undefined' && CITY_MAP[firstCity]) || '100010000';
   return { name: firstCity, code: code, found: code !== '100010000' || firstCity === '全国' };
 }
+const JOB_TYPE_NAMES = { '1901': '全职', '1902': '实习', '1903': '兼职' };
 function buildSearchUrl(cfg) {
   const c = resolveCity(cfg);
   const params = new URLSearchParams({ query: cfg.keyword || '', city: c.code });
+  // 求职类型：1901 全职 / 1902 实习 / 1903 兼职（与 BOSS 网页端参数一致，不限时传空）
+  if (cfg.jobType) params.set('jobType', cfg.jobType);
   // 行业/规模：BOSS 代码不确定，暂不加入（错误代码会导致搜不到任何岗位）
   return 'https://www.zhipin.com/web/geek/jobs?' + params.toString();
 }
@@ -114,7 +117,7 @@ async function runCollect() {
   if (!(cfg.resumeText || '').trim()) { log('请先在设置里填写"简历文字"（AI筛选和招呼语都需要它）', 'error'); state.phase = 'idle'; pushPhase(); return; }
 
   const _c = resolveCity(cfg);
-  log('打开搜索页：' + cfg.keyword + ' | 城市：' + (_c.found ? _c.name : '全国'));
+  log('打开搜索页：' + cfg.keyword + ' | 城市：' + (_c.found ? _c.name : '全国') + (JOB_TYPE_NAMES[cfg.jobType] ? ' | 求职类型：' + JOB_TYPE_NAMES[cfg.jobType] : ''));
   if (cfg.city && !_c.found) log('城市"' + cfg.city + '"未识别，已按全国搜索', 'warn');
   const tab = await getSearchTab(cfg);
   const count = parseInt(cfg.count) || 20;
